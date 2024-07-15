@@ -1,0 +1,44 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+
+    - name: Log in to OCI Registry
+      run: echo "${{ secrets.OCI_AUTH_TOKEN }}" | docker login phx.ocir.io -u "${{ secrets.OCI_USERNAME }}" --password-stdin
+
+    - name: Build and push Docker image
+      run: |
+        docker build -t phx.ocir.io/oracleamerica/flask-apps/python-hello-app:latest .
+        docker push phx.ocir.io/oracleamerica/flask-apps/python-hello-app:latest
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v1
+      with:
+        version: 'v1.20.0'
+
+    - name: Create Kubernetes Secret for Image Pull
+      run: |
+        kubectl create secret docker-registry ocirsecret \
+          --docker-server=phx.ocir.io \
+          --docker-username="${{ secrets.OCI_USERNAME }}" \
+          --docker-password="${{ secrets.OCI_AUTH_TOKEN }}" \
+          --docker-email="${{ secrets.OCI_EMAIL }}" || true
+
+    - name: Apply Kubernetes manifests
+      env:
+        KUBECONFIG: ${{ secrets.KUBECONFIG }}
+      run: |
+        kubectl apply -f app.yaml
